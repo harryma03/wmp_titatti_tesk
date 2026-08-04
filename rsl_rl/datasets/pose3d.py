@@ -16,7 +16,10 @@
 import math
 import numpy as np
 
-from pybullet_utils import transformations
+try:
+  from pybullet_utils import transformations
+except ModuleNotFoundError:
+  from rsl_rl.datasets import transformations_fallback as transformations
 
 VECTOR3_0 = np.zeros(3, dtype=np.float64)
 VECTOR3_1 = np.ones(3, dtype=np.float64)

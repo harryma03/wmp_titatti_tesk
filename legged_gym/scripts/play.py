@@ -42,10 +42,23 @@ from legged_gym import LEGGED_GYM_ROOT_DIR
 
 import isaacgym
 from legged_gym.envs import *
-from legged_gym.utils import  get_args, export_policy_as_jit, task_registry, Logger
+from legged_gym.utils import  get_args, export_policy_as_jit, export_policy_as_onnx, task_registry, Logger
 
 import numpy as np
 import torch
+
+
+def fix_terrain_level(env, terrain_level):
+    if terrain_level is None:
+        return
+    if not hasattr(env, "terrain_levels"):
+        print("--terrain_level ignored: environment has no terrain_levels")
+        return
+
+    level = max(0, min(int(terrain_level), int(env.max_terrain_level) - 1))
+    env.terrain_levels[:] = level
+    env.env_origins[:] = env.terrain_origins[env.terrain_levels, env.terrain_types]
+    print(f"Fixed play terrain level to {level} for all envs")
 
 
 def play(args):
@@ -86,8 +99,14 @@ def play(args):
         env_cfg.rewards.scales.feet_stumble = 0
 
 
+    terrain_aliases = {
+        'stair_up': 'stair',
+        'stairs_up': 'stair',
+        'pit': 'climb',
+    }
+    args.terrain = terrain_aliases.get(args.terrain, args.terrain)
     if(args.terrain not in ['slope', 'stair', 'gap', 'climb', 'crawl', 'tilt']):
-        print('terrain should be one of slope, stair, gap, climb, crawl, and tilt, set to climb as default')
+        print('terrain should be one of slope, stair/stair_up, gap, climb/pit, crawl, and tilt, set to climb as default')
         args.terrain = 'climb'
     env_cfg.terrain.terrain_proportions = {
         'slope': [0, 1.0, 0.0, 0, 0, 0, 0, 0, 0],
@@ -111,6 +130,7 @@ def play(args):
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
+    fix_terrain_level(env, args.terrain_level)
     _, _ = env.reset()
     obs = env.get_observations()
     # load policy
@@ -127,6 +147,14 @@ def play(args):
         path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'policies')
         export_policy_as_jit(ppo_runner.alg.actor_critic, path)
         print('Exported policy as jit script to: ', path)
+        onnx_path = export_policy_as_onnx(
+            ppo_runner.alg.actor_critic,
+            path,
+            obs_dim=env.num_obs,
+            history_dim=ppo_runner.history_dim,
+            wm_feature_dim=ppo_runner.wm_feature_dim,
+        )
+        print('Exported WMP policy as ONNX to: ', onnx_path)
 
     logger = Logger(env.dt)
     robot_index = 0 # which robot is used for logging

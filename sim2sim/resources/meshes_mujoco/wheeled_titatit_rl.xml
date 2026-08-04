@@ -1,0 +1,207 @@
+<mujoco model="wheeled_titatit">
+  <compiler angle="radian" autolimits="true" meshdir="../meshes"/>
+  <option cone="elliptic" impratio="100"/>
+
+  <default>
+    <geom condim="3" friction="1.2 0.005 0.0001" margin="0.01" solref="0.01 1" solimp="0.90 0.95 0.001"/>
+    <joint damping="0" frictionloss="0" armature="0"/>
+  </default>
+
+  <asset>
+    <material name="grey" rgba="0.75294 0.75294 0.75294 1"/>
+    <material name="orange" rgba="1.0 0.4235 0.0392 1.0"/>
+
+    <!-- STL mesh 文件 -->
+    <mesh name="base" file="base.STL"/>
+    <mesh name="FR_hip" file="FR_hip.STL"/>
+    <mesh name="FR_thigh" file="FR_thigh.STL"/>
+    <mesh name="FR_calf" file="FR_calf.STL"/>
+    <mesh name="FR_foot" file="FR_foot.STL"/>
+    <mesh name="FL_hip" file="FL_hip.STL"/>
+    <mesh name="FL_thigh" file="FL_thigh.STL"/>
+    <mesh name="FL_calf" file="FL_calf.STL"/>
+    <mesh name="FL_foot" file="FL_foot.STL"/>
+    <mesh name="RR_hip" file="RR_hip.STL"/>
+    <mesh name="RR_thigh" file="RR_thigh.STL"/>
+    <mesh name="RR_calf" file="RR_calf.STL"/>
+    <mesh name="RR_foot" file="RR_foot.STL"/>
+    <mesh name="RL_hip" file="RL_hip.STL"/>
+    <mesh name="RL_thigh" file="RL_thigh.STL"/>
+    <mesh name="RL_calf" file="RL_calf.STL"/>
+    <mesh name="RL_foot" file="RL_foot.STL"/>
+    <mesh name="FL_battery" file="FL_battery.STL"/>
+    <mesh name="FR_battery" file="FR_battery.STL"/>
+    <mesh name="RL_battery" file="RL_battery.STL"/>
+    <mesh name="RR_battery" file="RR_battery.STL"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 3" dir="0 0 -1" directional="true"/>
+    <body name="base" pos="0 0 0.44">
+      <inertial pos="0.00610416 -0.00013472 0.03915073" mass="27.81177332" fullinertia="0.33505891 0.51538714 0.39690016 0.00083495 -0.09078959 0.00152686"/>
+      <freejoint/>
+      <site name="trunk_imu" size="0.01"/>
+      <!-- Training randomizes camera pitch in [15, 25] deg down; use the midpoint for sim2sim. -->
+      <camera name="depth_camera" pos="0.537 -0.004 0.239" xyaxes="0 -1 0 0.342 0 0.940" fovy="58"/>
+      <!-- 视觉 mesh (仅渲染, 不参与碰撞) -->
+      <geom type="mesh" mesh="base" material="grey" group="1" contype="0" conaffinity="0"/>
+      <!-- 碰撞简化体 -->
+      <geom size="0.266 0.097 0.057" type="box" contype="1" conaffinity="1" density="0"/>
+
+      <!-- FR leg -->
+      <body name="FR_hip" pos="0.26556 -0.0895 0">
+        <inertial pos="0.00160252 -5.02529e-05 0.000638012" quat="0.999804 0.00104431 -0.0197557 9.54749e-05" mass="2.06397" diaginertia="0.00430756 0.0029982 0.00226716"/>
+        <joint name="FR_hip_joint" axis="1 0 0" range="-0.802851 0.802851" actuatorfrcrange="-55 55"/>
+        <!-- 视觉 mesh (仅渲染, 不参与碰撞) -->
+        <geom type="mesh" mesh="FR_hip" material="grey" group="1" quat="0.5 0.5 -0.5 -0.5" contype="0" conaffinity="0"/>
+        <!-- 碰撞简化体 -->
+        <geom size="0.045" type="sphere" contype="1" conaffinity="1" density="0"/>
+        <body name="FR_thigh" pos="0 -0.1426 0">
+          <inertial pos="0.0198087 -0.000674483 -0.0280301" quat="0.00924299 0.711846 -0.0115591 0.70218" mass="3.08319" diaginertia="0.00882828 0.00650388 0.00294907"/>
+          <joint name="FR_thigh_joint" axis="0 1 0" range="-1.0472 4.18879" actuatorfrcrange="-55 55"/>
+          <!-- 视觉 mesh (仅渲染, 不参与碰撞) -->
+          <geom type="mesh" mesh="FR_thigh" material="grey" group="1" quat="0.5 0.5 0.5 -0.5" contype="0" conaffinity="0"/>
+          <!-- 碰撞简化体 -->
+          <geom size="0.1 0.01225 0.017" pos="0 0 -0.1" quat="0.707107 0 0.707107 0" type="box" contype="1" conaffinity="1" density="0"/>
+          <body name="FR_calf" pos="0 0 -0.2">
+            <inertial pos="0.00183801 -0.0116984 -0.0953485" quat="0.997993 -0.0599704 0.0191198 0.00689675" mass="0.572443" diaginertia="0.00342535 0.00324383 0.00025855"/>
+            <joint name="FR_calf_joint" axis="0 1 0" range="-2.69653 -0.916298" actuatorfrcrange="-55 55"/>
+            <!-- 视觉 mesh (仅渲染, 不参与碰撞) -->
+            <geom type="mesh" mesh="FR_calf" material="grey" group="1" quat="0.5 0.5 0.5 -0.5" contype="0" conaffinity="0"/>
+            <!-- 碰撞简化体 -->
+            <geom size="0.1 0.016 0.024" pos="0 0 -0.1" quat="0.707107 0 0.707107 0" type="box" contype="1" conaffinity="1" density="0"/>
+            <body name="FR_foot" pos="0 0 -0.2">
+              <inertial pos="0 -0.05 0" quat="0.707107 0 0 0.707107" mass="1.5" diaginertia="0.00674 0.00342 0.00342"/>
+              <joint name="FR_foot_joint" axis="0 1 0" range="-1000000 1000000" actuatorfrcrange="-10 10"/>
+              <!-- 轮子: cylinder 同时作为视觉和碰撞 (去掉STL mesh避免重叠) -->
+              <geom size="0.0948 0.01" pos="0 -0.04 0" quat="0.707105 0.707108 0 0" type="cylinder" material="orange" contype="1" conaffinity="1" density="0"/>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- FL leg -->
+      <body name="FL_hip" pos="0.26556 0.0895 0">
+        <inertial pos="0.00160252 5.02529e-05 0.000637998" quat="0.999804 -0.00105031 -0.0197557 -9.57276e-05" mass="2.06397" diaginertia="0.00430756 0.0029982 0.00226716"/>
+        <joint name="FL_hip_joint" axis="1 0 0" range="-0.802851 0.802851" actuatorfrcrange="-55 55"/>
+        <!-- 视觉 mesh (仅渲染, 不参与碰撞) -->
+        <geom type="mesh" mesh="FL_hip" material="grey" group="1" quat="0.5 0.5 0.5 0.5" contype="0" conaffinity="0"/>
+        <!-- 碰撞简化体 -->
+        <geom size="0.045" type="sphere" contype="1" conaffinity="1" density="0"/>
+        <body name="FL_thigh" pos="0 0.1426 0">
+          <inertial pos="0.0198088 0.000674375 -0.0280301" quat="-0.00924156 0.711846 0.0115573 0.70218" mass="3.08318" diaginertia="0.00882828 0.00650389 0.00294906"/>
+          <joint name="FL_thigh_joint" axis="0 1 0" range="-1.0472 4.18879" actuatorfrcrange="-55 55"/>
+          <!-- 视觉 mesh (仅渲染, 不参与碰撞) -->
+          <geom type="mesh" mesh="FL_thigh" material="grey" group="1" quat="0.5 -0.5 0.5 0.5" contype="0" conaffinity="0"/>
+          <!-- 碰撞简化体 -->
+          <geom size="0.1 0.01225 0.017" pos="0 0 -0.1" quat="0.707107 0 0.707107 0" type="box" contype="1" conaffinity="1" density="0"/>
+          <body name="FL_calf" pos="0 0 -0.2">
+            <inertial pos="0.00183801 0.0116984 -0.0953485" quat="0.997993 0.0599704 0.0191198 -0.00689675" mass="0.572443" diaginertia="0.00342535 0.00324383 0.00025855"/>
+            <joint name="FL_calf_joint" axis="0 1 0" range="-2.69653 -0.916298" actuatorfrcrange="-55 55"/>
+            <!-- 视觉 mesh (仅渲染, 不参与碰撞) -->
+            <geom type="mesh" mesh="FL_calf" material="grey" group="1" quat="0.5 -0.5 0.5 0.5" contype="0" conaffinity="0"/>
+            <!-- 碰撞简化体 -->
+            <geom size="0.1 0.016 0.024" pos="0 0 -0.1" quat="0.707107 0 0.707107 0" type="box" contype="1" conaffinity="1" density="0"/>
+            <body name="FL_foot" pos="0 0 -0.2">
+              <inertial pos="0 0.05 0" quat="0.707107 0 0 0.707107" mass="1.5" diaginertia="0.00674 0.00342 0.00342"/>
+              <joint name="FL_foot_joint" axis="0 1 0" range="-1000000 1000000" actuatorfrcrange="-10 10"/>
+              <!-- 轮子: cylinder 同时作为视觉和碰撞 (去掉STL mesh避免重叠) -->
+              <geom size="0.0948 0.01" pos="0 0.04 0" quat="0.707105 0.707108 0 0" type="cylinder" material="orange" contype="1" conaffinity="1" density="0"/>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- RR leg -->
+      <body name="RR_hip" pos="-0.26519 -0.0895 -0.0002">
+        <inertial pos="-0.00160252 -5.02529e-05 0.000638012" quat="0.999804 0.00104431 0.0197557 -9.54749e-05" mass="2.06397" diaginertia="0.00430756 0.0029982 0.00226716"/>
+        <joint name="RR_hip_joint" axis="1 0 0" range="-0.802851 0.802851" actuatorfrcrange="-55 55"/>
+        <!-- 视觉 mesh (仅渲染, 不参与碰撞) -->
+        <geom type="mesh" mesh="RR_hip" material="grey" group="1" quat="0.5 0.5 -0.5 -0.5" contype="0" conaffinity="0"/>
+        <!-- 碰撞简化体 -->
+        <geom size="0.045" type="sphere" contype="1" conaffinity="1" density="0"/>
+        <body name="RR_thigh" pos="0 -0.1426 0">
+          <inertial pos="-0.0198087 -0.000674483 -0.0280301" quat="-0.0115591 0.70218 0.00924299 0.711846" mass="3.08319" diaginertia="0.00882828 0.00650388 0.00294907"/>
+          <joint name="RR_thigh_joint" axis="0 1 0" range="-4.18879 1.0472" actuatorfrcrange="-55 55"/>
+          <!-- 视觉 mesh (仅渲染, 不参与碰撞) -->
+          <geom type="mesh" mesh="RR_thigh" material="grey" group="1" quat="0.5 0.5 0.5 -0.5" contype="0" conaffinity="0"/>
+          <!-- 碰撞简化体 -->
+          <geom size="0.1 0.01225 0.017" pos="0 0 -0.1" quat="0.707107 0 0.707107 0" type="box" contype="1" conaffinity="1" density="0"/>
+          <body name="RR_calf" pos="0 0 -0.2">
+            <inertial pos="-0.00183801 -0.0116984 -0.0953485" quat="0.997993 -0.0599704 -0.0191198 -0.00689675" mass="0.572443" diaginertia="0.00342535 0.00324383 0.00025855"/>
+            <joint name="RR_calf_joint" axis="0 1 0" range="-0.916298 2.69653" actuatorfrcrange="-55 55"/>
+            <!-- 视觉 mesh (仅渲染, 不参与碰撞) -->
+            <geom type="mesh" mesh="RR_calf" material="grey" group="1" quat="0.5 0.5 0.5 -0.5" contype="0" conaffinity="0"/>
+            <!-- 碰撞简化体 -->
+            <geom size="0.1 0.016 0.024" pos="0 0 -0.1" quat="0.707107 0 0.707107 0" type="box" contype="1" conaffinity="1" density="0"/>
+            <body name="RR_foot" pos="0 0 -0.2">
+              <inertial pos="0 -0.05 0" quat="0.707107 0 0 0.707107" mass="1.5" diaginertia="0.00674 0.00342 0.00342"/>
+              <joint name="RR_foot_joint" axis="0 1 0" range="-1000000 1000000" actuatorfrcrange="-10 10"/>
+              <!-- 轮子: cylinder 同时作为视觉和碰撞 (去掉STL mesh避免重叠) -->
+              <geom size="0.0948 0.01" pos="0 -0.04 0" quat="0.707105 0.707108 0 0" type="cylinder" material="orange" contype="1" conaffinity="1" density="0"/>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- RL leg -->
+      <body name="RL_hip" pos="-0.26556 0.0895 0">
+        <inertial pos="-0.00160252 5.02529e-05 0.000637998" quat="0.999804 -0.00105031 0.0197557 9.57276e-05" mass="2.06397" diaginertia="0.00430756 0.0029982 0.00226716"/>
+        <joint name="RL_hip_joint" axis="1 0 0" range="-0.802851 0.802851" actuatorfrcrange="-55 55"/>
+        <!-- 视觉 mesh (仅渲染, 不参与碰撞) -->
+        <geom type="mesh" mesh="RL_hip" material="grey" group="1" quat="0.5 0.5 0.5 0.5" contype="0" conaffinity="0"/>
+        <!-- 碰撞简化体 -->
+        <geom size="0.045" type="sphere" contype="1" conaffinity="1" density="0"/>
+        <body name="RL_thigh" pos="0 0.1426 0">
+          <inertial pos="-0.0198088 0.000674375 -0.0280301" quat="0.0115573 0.70218 -0.00924156 0.711846" mass="3.08318" diaginertia="0.00882828 0.00650389 0.00294906"/>
+          <joint name="RL_thigh_joint" axis="0 1 0" range="-4.18879 1.0472" actuatorfrcrange="-55 55"/>
+          <!-- 视觉 mesh (仅渲染, 不参与碰撞) -->
+          <geom type="mesh" mesh="RL_thigh" material="grey" group="1" quat="0.5 -0.5 0.5 0.5" contype="0" conaffinity="0"/>
+          <!-- 碰撞简化体 -->
+          <geom size="0.1 0.01225 0.017" pos="0 0 -0.1" quat="0.707107 0 0.707107 0" type="box" contype="1" conaffinity="1" density="0"/>
+          <body name="RL_calf" pos="0 0 -0.2">
+            <inertial pos="-0.00183801 0.0116984 -0.0953485" quat="0.997993 0.0599704 -0.0191198 0.00689675" mass="0.572443" diaginertia="0.00342535 0.00324383 0.00025855"/>
+            <joint name="RL_calf_joint" axis="0 1 0" range="0.916298 2.69653" actuatorfrcrange="-55 55"/>
+            <!-- 视觉 mesh (仅渲染, 不参与碰撞) -->
+            <geom type="mesh" mesh="RL_calf" material="grey" group="1" quat="0.5 -0.5 0.5 0.5" contype="0" conaffinity="0"/>
+            <!-- 碰撞简化体 -->
+            <geom size="0.1 0.016 0.024" pos="0 0 -0.1" quat="0.707107 0 0.707107 0" type="box" contype="1" conaffinity="1" density="0"/>
+            <body name="RL_foot" pos="0 0 -0.2">
+              <inertial pos="0 0.05 0" quat="0.707107 0 0 0.707107" mass="1.5" diaginertia="0.00674 0.00342 0.00342"/>
+              <joint name="RL_foot_joint" axis="0 1 0" range="-1000000 1000000" actuatorfrcrange="-10 10"/>
+              <!-- 轮子: cylinder 同时作为视觉和碰撞 (去掉STL mesh避免重叠) -->
+              <geom size="0.0948 0.01" pos="0 0.04 0" quat="0.707105 0.707108 0 0" type="cylinder" material="orange" contype="1" conaffinity="1" density="0"/>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <motor name="FR_hip" joint="FR_hip_joint" ctrllimited="true" ctrlrange="-55 55"/>
+    <motor name="FR_thigh" joint="FR_thigh_joint" ctrllimited="true" ctrlrange="-55 55"/>
+    <motor name="FR_calf" joint="FR_calf_joint" ctrllimited="true" ctrlrange="-55 55"/>
+    <motor name="FR_foot" joint="FR_foot_joint" ctrllimited="true" ctrlrange="-10 10"/>
+    <motor name="FL_hip" joint="FL_hip_joint" ctrllimited="true" ctrlrange="-55 55"/>
+    <motor name="FL_thigh" joint="FL_thigh_joint" ctrllimited="true" ctrlrange="-55 55"/>
+    <motor name="FL_calf" joint="FL_calf_joint" ctrllimited="true" ctrlrange="-55 55"/>
+    <motor name="FL_foot" joint="FL_foot_joint" ctrllimited="true" ctrlrange="-10 10"/>
+    <motor name="RR_hip" joint="RR_hip_joint" ctrllimited="true" ctrlrange="-55 55"/>
+    <motor name="RR_thigh" joint="RR_thigh_joint" ctrllimited="true" ctrlrange="-55 55"/>
+    <motor name="RR_calf" joint="RR_calf_joint" ctrllimited="true" ctrlrange="-55 55"/>
+    <motor name="RR_foot" joint="RR_foot_joint" ctrllimited="true" ctrlrange="-10 10"/>
+    <motor name="RL_hip" joint="RL_hip_joint" ctrllimited="true" ctrlrange="-55 55"/>
+    <motor name="RL_thigh" joint="RL_thigh_joint" ctrllimited="true" ctrlrange="-55 55"/>
+    <motor name="RL_calf" joint="RL_calf_joint" ctrllimited="true" ctrlrange="-55 55"/>
+    <motor name="RL_foot" joint="RL_foot_joint" ctrllimited="true" ctrlrange="-10 10"/>
+  </actuator>
+
+  <sensor>
+    <framequat name="trunk_quat" objtype="site" objname="trunk_imu"/>
+    <gyro name="trunk_gyro" site="trunk_imu"/>
+    <accelerometer name="trunk_accel" site="trunk_imu"/>
+    <framepos name="frame_pos" objtype="site" objname="trunk_imu"/>
+    <framelinvel name="frame_vel" objtype="site" objname="trunk_imu"/>
+  </sensor>
+</mujoco>

@@ -25,7 +25,10 @@ import logging
 
 import torch
 import numpy as np
-from pybullet_utils import transformations
+try:
+    from pybullet_utils import transformations
+except ModuleNotFoundError:
+    from rsl_rl.datasets import transformations_fallback as transformations
 
 from rsl_rl.utils import utils
 from rsl_rl.datasets import pose3d
@@ -36,12 +39,12 @@ class AMPLoader:
 
     POS_SIZE = 3
     ROT_SIZE = 4
-    JOINT_POS_SIZE = 12
-    TAR_TOE_POS_LOCAL_SIZE = 12
+    JOINT_POS_SIZE = 16  # Titatit: 12 leg + 4 wheel joints
+    TAR_TOE_POS_LOCAL_SIZE = 12  # 4 feet x 3D position
     LINEAR_VEL_SIZE = 3
     ANGULAR_VEL_SIZE = 3
-    JOINT_VEL_SIZE = 12
-    TAR_TOE_VEL_LOCAL_SIZE = 12
+    JOINT_VEL_SIZE = 16  # Titatit: 12 leg + 4 wheel joints
+    TAR_TOE_VEL_LOCAL_SIZE = 12  # 4 feet x 3D velocity
 
     ROOT_POS_START_IDX = 0
     ROOT_POS_END_IDX = ROOT_POS_START_IDX + POS_SIZE

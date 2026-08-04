@@ -56,6 +56,13 @@ from .legged_robot_config import LeggedRobotCfg
 from rsl_rl.datasets.motion_loader import AMPLoader
 import cv2
 
+try:
+    from rsl_rl.utils.warp_render_v3 import DepthRendererWarp, depth_image_preprocessing
+except Exception as exc:
+    DepthRendererWarp = None
+    depth_image_preprocessing = None
+    _WARP_RENDER_IMPORT_ERROR = exc
+
 COM_OFFSET = torch.tensor([0.012731, 0.002186, 0.000515])
 HIP_OFFSETS = torch.tensor([
     [0.183, 0.047, 0.],
@@ -219,12 +226,47 @@ class LeggedRobot(BaseTask):
         # crop 30 pixels from the left and right and and 20 pixels from bottom and return croped image
         return depth_image[:-2, 4:-4]
 
-    def update_depth_buffer(self):
+    def update_depth_buffer(self, force=False):
         if not self.cfg.depth.use_camera:
             return
 
-        if self.global_counter % self.cfg.depth.update_interval != 0:
+        if (not force) and self.global_counter % self.cfg.depth.update_interval != 0:
             return
+
+        if getattr(self.cfg.depth, "use_warp_renderer", False):
+            if DepthRendererWarp is None or depth_image_preprocessing is None:
+                raise ImportError(
+                    "cfg.depth.use_warp_renderer=True, but rsl_rl.utils.warp_render_v3 "
+                    f"could not be imported: {_WARP_RENDER_IMPORT_ERROR}"
+                )
+            if not hasattr(self, "depth_renderer") or self.depth_renderer is None:
+                return
+
+            start_time = time()
+            depth_env_ids = torch.as_tensor(self.depth_index, device=self.device, dtype=torch.long)
+            base_pos = self.root_states[depth_env_ids, :3]
+            base_quat = self.root_states[depth_env_ids, 3:7]
+            depth_images = self.depth_renderer.render_depth(base_pos, base_quat)
+            depth_images = depth_image_preprocessing(
+                depth_images,
+                near_plane=self.cfg.depth.near_clip,
+                far_plane=self.cfg.depth.far_clip,
+                depth_scale=1.0,
+            )
+
+            for i in range(len(self.depth_index)):
+                env_id = int(self.depth_index[i])
+                depth_image = self.process_depth_image(-depth_images[i], i)
+                if force or self.episode_length_buf[env_id] <= 1:
+                    self.depth_buffer[i] = torch.stack([depth_image] * self.cfg.depth.buffer_len, dim=0)
+                else:
+                    self.depth_buffer[i] = torch.cat(
+                        [self.depth_buffer[i, 1:], depth_image.to(self.device).unsqueeze(0)],
+                        dim=0,
+                    )
+            print('acquiring depth image time:', time() - start_time)
+            return
+
         # self.gym.fetch_results(self.sim, True)
         self.gym.step_graphics(self.sim)  # required to render in headless mode
         self.gym.render_all_camera_sensors(self.sim)
@@ -232,8 +274,9 @@ class LeggedRobot(BaseTask):
         self.gym.start_access_image_tensors(self.sim)
         # for i in range(self.num_envs):
         for i in range(len(self.depth_index)):
+            env_id = int(self.depth_index[i])
             depth_image_ = self.gym.get_camera_image_gpu_tensor(self.sim,
-                                                                self.envs[self.depth_index[i]],
+                                                                self.envs[env_id],
                                                                 self.cam_handles[i],
                                                                 gymapi.IMAGE_DEPTH)
 
@@ -242,8 +285,7 @@ class LeggedRobot(BaseTask):
 
             # if(i == 0): print(torch.mean(depth_image)) # for debug, sometimes isaacgym will return all -inf depth image if not config properly
 
-            init_flag = self.episode_length_buf <= 1
-            if init_flag[i]:
+            if force or self.episode_length_buf[env_id] <= 1:
                 self.depth_buffer[i] = torch.stack([depth_image] * self.cfg.depth.buffer_len, dim=0)
             else:
                 self.depth_buffer[i] = torch.cat([self.depth_buffer[i, 1:], depth_image.to(self.device).unsqueeze(0)],
@@ -387,6 +429,23 @@ class LeggedRobot(BaseTask):
         # log additional curriculum info
         if self.cfg.terrain.curriculum:
             self.extras["episode"]["terrain_level"] = torch.mean(self.terrain_levels.float())
+            if len(self.cfg.terrain.terrain_proportions) == 10:
+                terrain_ranges = (
+                    ("wave", 0, self.wave_end_idx),
+                    ("slope", self.wave_end_idx, self.slope_end_idx),
+                    ("stair_up", self.slope_end_idx, self.stairup_end_idx),
+                    ("stair_down", self.stairup_end_idx, self.stairdown_end_idx),
+                    ("discrete", self.stairdown_end_idx, self.discrete_end_idx),
+                    ("gap", self.gap_start_idx, self.gap_end_idx),
+                    ("pit", self.pit_start_idx, self.pit_end_idx),
+                    ("tilt", self.tilt_start_idx, self.tilt_end_idx),
+                    ("crawl", self.crawl_start_idx, self.crawl_end_idx),
+                    ("rough_flat", self.roughflat_start_idx, self.num_envs),
+                )
+                for terrain_name, start_idx, end_idx in terrain_ranges:
+                    if end_idx > start_idx:
+                        level = torch.mean(self.terrain_levels[start_idx:end_idx].float())
+                        self.extras["episode"][f"terrain_level_{terrain_name}"] = level
         if self.cfg.commands.curriculum:
             self.extras["episode"]["max_command_x"] = self.command_ranges["lin_vel_x"][1]
             self.extras["episode"]["max_command_yaw"] = self.command_ranges["ang_vel_yaw"][1]
@@ -1140,11 +1199,13 @@ class LeggedRobot(BaseTask):
             local_transform = gymapi.Transform()
 
             camera_position = np.copy(config.position)
-            camera_y_angle = np.random.uniform(config.y_angle[0], config.y_angle[1])
-
-            camera_z_angle = np.random.uniform(config.z_angle[0], config.z_angle[1])
-            camera_x_angle = np.random.uniform(config.x_angle[0], config.x_angle[1])
-
+            cam_idx = int(self.depth_index_inverse[i]) if hasattr(self, "depth_index_inverse") else -1
+            if hasattr(self, "depth_cam_euler_deg") and cam_idx >= 0:
+                camera_x_angle, camera_y_angle, camera_z_angle = self.depth_cam_euler_deg[cam_idx]
+            else:
+                camera_x_angle = np.random.uniform(config.x_angle[0], config.x_angle[1])
+                camera_y_angle = np.random.uniform(config.y_angle[0], config.y_angle[1])
+                camera_z_angle = np.random.uniform(config.z_angle[0], config.z_angle[1])
 
             local_transform.p = gymapi.Vec3(*camera_position)
             local_transform.r = gymapi.Quat.from_euler_zyx(np.radians(camera_x_angle),
@@ -1153,6 +1214,50 @@ class LeggedRobot(BaseTask):
 
             self.gym.attach_camera_to_body(camera_handle, env_handle, root_handle, local_transform,
                                            gymapi.FOLLOW_TRANSFORM)
+
+    def _init_warp_depth_renderer(self):
+        if not getattr(self.cfg.depth, "use_warp_renderer", False):
+            self.depth_renderer = None
+            return
+        if DepthRendererWarp is None or depth_image_preprocessing is None:
+            raise ImportError(
+                "cfg.depth.use_warp_renderer=True, but rsl_rl.utils.warp_render_v3 "
+                f"could not be imported: {_WARP_RENDER_IMPORT_ERROR}"
+            )
+        if self.cfg.terrain.mesh_type != 'trimesh':
+            raise ValueError("Warp depth renderer currently requires terrain mesh_type='trimesh'.")
+        if len(self.depth_index) == 0:
+            self.depth_renderer = None
+            return
+
+        camera_num = len(self.depth_index)
+        cam_pos = torch.tensor(self.cfg.depth.position, dtype=torch.float32, device=self.device).repeat(camera_num, 1)
+        if hasattr(self, "depth_cam_euler_deg"):
+            cam_euler_deg = self.depth_cam_euler_deg
+        else:
+            cam_roll = np.random.uniform(self.cfg.depth.x_angle[0], self.cfg.depth.x_angle[1], size=camera_num)
+            cam_pitch = np.random.uniform(self.cfg.depth.y_angle[0], self.cfg.depth.y_angle[1], size=camera_num)
+            cam_yaw = np.random.uniform(self.cfg.depth.z_angle[0], self.cfg.depth.z_angle[1], size=camera_num)
+            cam_euler_deg = np.stack([cam_roll, cam_pitch, cam_yaw], axis=1)
+        cam_euler = torch.tensor(np.deg2rad(cam_euler_deg), dtype=torch.float32, device=self.device)
+        cam_fov = torch.full(
+            (camera_num,),
+            float(self.cfg.depth.horizontal_fov),
+            dtype=torch.float32,
+            device=self.device,
+        )
+        self.depth_renderer = DepthRendererWarp(
+            [self.cfg.depth.original[0], self.cfg.depth.original[1]],
+            cam_pos,
+            cam_euler,
+            cam_fov,
+            device=self.device,
+        )
+
+        terrain_vertices = np.array(self.terrain.vertices, copy=True)
+        terrain_vertices[:, 0] -= self.terrain.cfg.border_size
+        terrain_vertices[:, 1] -= self.terrain.cfg.border_size
+        self.depth_renderer.render_mesh(terrain_vertices, self.terrain.triangles)
 
     def _create_envs(self):
         """ Creates environments:
@@ -1234,13 +1339,35 @@ class LeggedRobot(BaseTask):
         if(self.cfg.depth.use_camera):
             # All robots of Tilt and Crawl needs depth camera
             self.cfg.depth.camera_num_envs = min(self.cfg.depth.camera_num_envs, self.num_envs)
-            self.depth_index_without_crawl_tilt = np.random.choice(range(self.tilt_start_idx), self.cfg.depth.camera_num_envs
-                                                             - (self.crawl_end_idx - self.tilt_start_idx), replace=False)
-            self.depth_index_without_crawl_tilt = np.sort(self.depth_index_without_crawl_tilt).astype(np.int)
-            self.depth_index = np.concatenate((self.depth_index_without_crawl_tilt, range(self.tilt_start_idx, self.crawl_end_idx))).astype(np.int)
-            self.depth_index_inverse = -np.ones(self.num_envs, dtype=np.int)
+            full_tilt_crawl_index = np.arange(self.tilt_start_idx, self.crawl_end_idx, dtype=np.int64)
+            extra_candidates = np.setdiff1d(
+                np.arange(self.num_envs, dtype=np.int64),
+                full_tilt_crawl_index,
+                assume_unique=True,
+            )
+            min_extra_cameras = getattr(
+                self.cfg.depth,
+                "min_non_crawl_tilt_camera_envs",
+                max(1, self.cfg.depth.camera_num_envs // 4),
+            )
+            min_extra_cameras = min(min_extra_cameras, self.cfg.depth.camera_num_envs, len(extra_candidates))
+            max_tilt_crawl_cameras = self.cfg.depth.camera_num_envs - min_extra_cameras
+            tilt_crawl_index = full_tilt_crawl_index[:max_tilt_crawl_cameras]
+            num_extra_cameras = self.cfg.depth.camera_num_envs - len(tilt_crawl_index)
+            extra_index = np.random.choice(extra_candidates, num_extra_cameras, replace=False) if num_extra_cameras > 0 else []
+            self.depth_index_without_crawl_tilt = np.sort(extra_index).astype(np.int64)
+            self.depth_index = np.sort(np.concatenate((self.depth_index_without_crawl_tilt, tilt_crawl_index))).astype(np.int64)
+            self.depth_index_inverse = -np.ones(self.num_envs, dtype=np.int64)
             for i in range(len(self.depth_index)):
                 self.depth_index_inverse[self.depth_index[i]] = i
+            camera_num = len(self.depth_index)
+            cam_roll = np.random.uniform(self.cfg.depth.x_angle[0], self.cfg.depth.x_angle[1], size=camera_num)
+            cam_pitch = np.random.uniform(self.cfg.depth.y_angle[0], self.cfg.depth.y_angle[1], size=camera_num)
+            cam_yaw = np.random.uniform(self.cfg.depth.z_angle[0], self.cfg.depth.z_angle[1], size=camera_num)
+            self.depth_cam_euler_deg = np.stack([cam_roll, cam_pitch, cam_yaw], axis=1)
+            print(f"Camera extrinsics (roll, pitch, yaw in degrees) for {camera_num} cameras:\n{self.depth_cam_euler_deg}")
+            if getattr(self.cfg.depth, "use_warp_renderer", False):
+                self._init_warp_depth_renderer()
 
         for i in range(self.num_envs):
             # create env instance
@@ -1260,7 +1387,7 @@ class LeggedRobot(BaseTask):
             self.envs.append(env_handle)
             self.actor_handles.append(anymal_handle)
 
-            if(self.cfg.depth.use_camera and i in self.depth_index):
+            if(self.cfg.depth.use_camera and i in self.depth_index and not getattr(self.cfg.depth, "use_warp_renderer", False)):
                 self.attach_camera(i, env_handle, anymal_handle)
 
         self.feet_indices = torch.zeros(len(feet_names), dtype=torch.long, device=self.device, requires_grad=False)

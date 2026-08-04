@@ -33,6 +33,10 @@
 
 import time
 import os
+import re
+import json
+import shutil
+import inspect
 from collections import deque
 import statistics
 
@@ -50,7 +54,10 @@ from rsl_rl.modules import DepthPredictor
 import torch.optim as optim
 
 from dreamer.models import *
-import ruamel.yaml as yaml
+try:
+    import ruamel.yaml as yaml
+except ModuleNotFoundError:
+    import yaml
 import argparse
 import pathlib
 import sys
@@ -72,6 +79,7 @@ class WMPRunner:
         self.alg_cfg = train_cfg["algorithm"]
         self.policy_cfg = train_cfg["policy"]
         self.depth_predictor_cfg = train_cfg["depth_predictor"]
+        self.train_cfg = train_cfg
         self.device = device
         self.env = env
         self.history_length = history_length
@@ -89,8 +97,14 @@ class WMPRunner:
         # build world model
         self._build_world_model()
 
-        # build depth predictor
-        self.depth_predictor = DepthPredictor().to(self._world_model.device)
+        # build depth predictor (pass correct dimensions for the robot)
+        # The depth predictor receives the same 41-D prop as the world model:
+        # ang_vel, gravity, command, dof_pos and dof_vel.
+        self.depth_predictor = DepthPredictor(
+            forward_heightamp_dim=self.env.cfg.env.forward_height_dim,
+            prop_dim=self.env.cfg.env.prop_dim,
+            depth_image_dims=list(self.env.cfg.depth.resized),
+        ).to(self._world_model.device)
         self.depth_predictor_opt = optim.Adam(self.depth_predictor.parameters(), lr=self.depth_predictor_cfg["lr"],
                                               weight_decay=self.depth_predictor_cfg["weight_decay"])
 
@@ -120,6 +134,15 @@ class WMPRunner:
         min_std = (
                 torch.tensor(self.cfg["min_normalized_std"], device=self.device) *
                 (torch.abs(self.env.dof_pos_limits[:, 1] - self.env.dof_pos_limits[:, 0])))
+        # Titatit wheel joints use velocity control, not PD position control.
+        # Their position limits are ±999999 which inflates min_std to ~200000.
+        # Only clamp robots that explicitly expose wheel_indices; A1 foot joints
+        # share some indices but should keep the normal legged min_std.
+        if hasattr(self.env, "wheel_indices"):
+            wheel_indices = self.env.wheel_indices.to(device=self.device, dtype=torch.long)
+            wheel_indices = wheel_indices[(wheel_indices >= 0) & (wheel_indices < min_std.numel())]
+            if wheel_indices.numel() > 0:
+                min_std[wheel_indices] = torch.clamp(min_std[wheel_indices], max=1.0)
         self.alg: PPO = alg_class(actor_critic, discriminator, amp_data, amp_normalizer, device=self.device,
                                   min_std=min_std, **self.alg_cfg)
         self.num_steps_per_env = self.cfg["num_steps_per_env"]
@@ -132,6 +155,7 @@ class WMPRunner:
         # Log
         self.log_dir = log_dir
         self.writer = None
+        self._config_snapshot_saved = False
         self.tot_timesteps = 0
         self.tot_time = 0
         self.current_learning_iteration = 0
@@ -165,12 +189,16 @@ class WMPRunner:
         for key, value in sorted(defaults.items(), key=lambda x: x[0]):
             arg_type = tools.args_type(value)
             parser.add_argument(f"--{key}", type=arg_type, default=arg_type(value))
-        self.wm_config = parser.parse_args()
+        self.wm_config, _ = parser.parse_known_args()
         # allow world model and rl env on different device
         if (self.wm_config.wm_device != 'None'):
             self.wm_config.device = self.wm_config.wm_device
-        self.wm_config.num_actions = self.wm_config.num_actions * self.env.cfg.depth.update_interval
-        prop_dim = self.env.num_obs - self.env.privileged_dim - self.env.height_dim - self.env.num_actions
+        # The bundled Dreamer config is shared with A1 and defaults to 12 actions.
+        # Titatit has 16 actions, so derive the world-model action history size
+        # from the active environment instead of the YAML default.
+        self.wm_config.num_actions = self.env.num_actions * self.env.cfg.depth.update_interval
+        # Use config prop_dim (matches actual obs[:, priv_dim:priv_dim+prop_dim] slice size)
+        prop_dim = self.env.cfg.env.prop_dim
         image_shape = self.env.cfg.depth.resized + (1,)
         obs_shape = {'prop': (prop_dim,), 'image': image_shape,}
 
@@ -179,11 +207,95 @@ class WMPRunner:
         print('Finish construct world model')
         self.wm_feature_dim = self.wm_config.dyn_deter #+ self.wm_config.dyn_stoch * self.wm_config.dyn_discrete
 
+    def _config_to_plain(self, obj):
+        if obj is None or isinstance(obj, (str, int, float, bool)):
+            return obj
+        if isinstance(obj, np.generic):
+            return obj.item()
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if torch.is_tensor(obj):
+            return obj.detach().cpu().tolist()
+        if isinstance(obj, dict):
+            return {str(k): self._config_to_plain(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [self._config_to_plain(v) for v in obj]
+        if isinstance(obj, pathlib.Path):
+            return str(obj)
+        if hasattr(obj, "__dict__") or isinstance(obj, type):
+            result = {}
+            for key in dir(obj):
+                if key.startswith("_"):
+                    continue
+                try:
+                    value = getattr(obj, key)
+                except Exception:
+                    continue
+                if callable(value):
+                    continue
+                result[key] = self._config_to_plain(value)
+            return result
+        return str(obj)
+
+    def _source_path_for_object(self, obj):
+        candidates = [obj]
+        if obj is not None:
+            candidates.append(obj.__class__)
+
+        for candidate in candidates:
+            try:
+                source_path = inspect.getsourcefile(candidate)
+            except TypeError:
+                source_path = None
+            if source_path is not None and os.path.exists(source_path):
+                return source_path
+
+        module_name = getattr(obj, "__module__", None)
+        if module_name is None and obj is not None:
+            module_name = getattr(obj.__class__, "__module__", None)
+        module = sys.modules.get(module_name)
+        source_path = getattr(module, "__file__", None)
+        if source_path is not None and os.path.exists(source_path):
+            return source_path
+        return None
+
+    def _copy_source_snapshot(self, obj, alias_filename=None):
+        source_path = self._source_path_for_object(obj)
+        if source_path is None or not os.path.exists(source_path):
+            return
+        filenames = {os.path.basename(source_path)}
+        if alias_filename is not None:
+            filenames.add(alias_filename)
+        for filename in filenames:
+            shutil.copy2(source_path, os.path.join(self.log_dir, filename))
+
+    def _save_config_snapshot(self):
+        if self.log_dir is None or self._config_snapshot_saved:
+            return
+
+        os.makedirs(self.log_dir, exist_ok=True)
+        snapshot = {
+            "saved_at": datetime.datetime.now().isoformat(timespec="seconds"),
+            "argv": sys.argv,
+            "env_cfg": self._config_to_plain(self.env.cfg),
+            "train_cfg": self._config_to_plain(self.train_cfg),
+        }
+        with open(os.path.join(self.log_dir, "config_snapshot.json"), "w", encoding="utf-8") as f:
+            json.dump(snapshot, f, indent=2, sort_keys=True)
+
+        self._copy_source_snapshot(self.env.cfg, "env_config_source.py")
+        entrypoint = os.path.abspath(sys.argv[0]) if len(sys.argv) > 0 else None
+        if entrypoint is not None and os.path.exists(entrypoint):
+            shutil.copy2(entrypoint, os.path.join(self.log_dir, os.path.basename(entrypoint)))
+            shutil.copy2(entrypoint, os.path.join(self.log_dir, "train_entrypoint.py"))
+
+        self._config_snapshot_saved = True
 
     def learn(self, num_learning_iterations, init_at_random_ep_len=False):
         # initialize writer
         if self.log_dir is not None and self.writer is None:
             self.writer = SummaryWriter(log_dir=self.log_dir, flush_secs=10)
+        self._save_config_snapshot()
         if init_at_random_ep_len:
             self.env.episode_length_buf = torch.randint_like(self.env.episode_length_buf,
                                                              high=int(self.env.max_episode_length))
@@ -356,7 +468,7 @@ class WMPRunner:
             if self.log_dir is not None:
                 self.log(locals())
             if it % self.save_interval == 0:
-                self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
+                self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)), iteration=it)
             ep_infos.clear()
 
 
@@ -374,11 +486,7 @@ class WMPRunner:
                     self.writer.add_scalar('World_model/' + name, float(np.mean(values)), it)
             print('training world model time:', time.time() - start_time)
 
-            # copy the config file
-            if(it == 0):
-                os.system("cp ./legged_gym/envs/a1/a1_amp_config.py " + self.log_dir + "/")
-
-        self.current_learning_iteration += num_learning_iterations
+        self.current_learning_iteration = tot_iter
         self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration)))
 
     def init_wm_dataset(self):
@@ -555,7 +663,9 @@ class WMPRunner:
                                locs['num_learning_iterations'] - locs['it']):.1f}s\n""")
         print(log_string)
 
-    def save(self, path, infos=None):
+    def save(self, path, infos=None, iteration=None):
+        if iteration is None:
+            iteration = self.current_learning_iteration
         torch.save({
             'model_state_dict': self.alg.actor_critic.state_dict(),
             'optimizer_state_dict': self.alg.optimizer.state_dict(),
@@ -564,7 +674,7 @@ class WMPRunner:
             'depth_predictor': self.depth_predictor.state_dict(),
             # 'discriminator_state_dict': self.alg.discriminator.state_dict(),
             # 'amp_normalizer': self.alg.amp_normalizer,
-            'iter': self.current_learning_iteration,
+            'iter': iteration,
             'infos': infos,
         }, path)
 
@@ -578,7 +688,12 @@ class WMPRunner:
         # self.alg.amp_normalizer = loaded_dict['amp_normalizer']
         if load_optimizer:
             self.alg.optimizer.load_state_dict(loaded_dict['optimizer_state_dict'])
-        self.current_learning_iteration = loaded_dict['iter']
+        loaded_iter = loaded_dict.get('iter', 0)
+        if loaded_iter == 0:
+            match = re.search(r'model_(\d+)\.pt$', os.path.basename(path))
+            if match is not None:
+                loaded_iter = int(match.group(1))
+        self.current_learning_iteration = loaded_iter
         return loaded_dict['infos']
 
     def get_inference_policy(self, device=None):

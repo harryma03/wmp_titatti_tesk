@@ -1,0 +1,64 @@
+simulation_duration: 1000.0
+simulation_dt: 0.005
+control_decimation: 4
+
+# Strict 16-DOF extension of the quadruped WMP observation contract.
+# policy history step = 54:
+#   ang_vel(3)+gravity(3)+dof_pos(16)+dof_vel(16)+actions(16)
+# world-model prop = 41:
+#   ang_vel(3)+gravity(3)+command(3)+dof_pos(16)+dof_vel(16)
+kps: [35]
+kds: [0.625]
+
+default_angles: [
+  0.05,  1.0, -1.5, 0.0,
+ -0.05,  1.0, -1.5, 0.0,
+  0.05, -0.8,  1.5, 0.0,
+ -0.05, -0.8,  1.5, 0.0,
+]
+
+ang_vel_scale: 0.25
+lin_vel_scale: 2.0
+dof_pos_scale: 1.0
+dof_vel_scale: 0.05
+action_scale: 0.25
+wheel_kp: 0.4
+wheel_kd_scale: 0.4
+wheel_kp_scale: 14.0
+wheel_kd_abs: 0.25
+hip_scale_reduction: 0.3
+
+cmd_init: [0., 0., 0.]
+cmd_scale: [2.0, 2.0, 0.25]
+
+keyboard:
+  max_vel: 0.8
+  max_yaw_vel: 1.0
+
+num_actions: 16
+num_obs: 54
+train_num_obs: 305
+privileged_dim: 61
+height_dim: 187
+forward_height_dim: 525
+wm_prop_dim: 41
+history_len: 5
+wheel_indices: [3, 7, 11, 15]
+hip_indices: [0, 4, 8, 12]
+clip_actions: 100.0
+
+depth:
+  camera_name: depth_camera
+  original: [64, 64]
+  resized: [64, 64]
+  horizontal_fov: 58
+  near_clip: 0.0
+  far_clip: 2.0
+  scale: 1.0
+  update_interval: 5
+  hide_robot: true
+
+action_filter:
+  enabled: true
+  last_action_weight: 0.2
+  current_action_weight: 0.8

@@ -1,0 +1,30 @@
+Thu Nov 27 16:02:16 2025
+WARNING: mju_openResource: unknown file '/home/ferry92/project/code/workspace6_py_mujoco/output/mjcf/scene_terrain.xml'
+
+Thu Nov 27 16:09:49 2025
+WARNING: Nan, Inf or huge value in CTRL at ACTUATOR 3. The simulation is unstable. Time = 0.0060.
+
+Thu Nov 27 16:09:49 2025
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.0060.
+
+Thu Nov 27 16:09:49 2025
+WARNING: Nan, Inf or huge value in CTRL at ACTUATOR 0. The simulation is unstable. Time = 0.0020.
+
+Thu Nov 27 16:24:06 2025
+WARNING: Nan, Inf or huge value in CTRL at ACTUATOR 1. The simulation is unstable. Time = 0.0360.
+
+Thu Nov 27 16:24:06 2025
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.0360.
+
+Thu Nov 27 16:24:06 2025
+WARNING: Nan, Inf or huge value in CTRL at ACTUATOR 0. The simulation is unstable. Time = 0.0020.
+
+Thu Nov 27 16:35:12 2025
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 0.1400.
+
+Thu Nov 27 16:35:52 2025
+WARNING: Nan, Inf or huge value in QACC at DOF 15. The simulation is unstable. Time = 0.2000.
+
+Sun Nov 30 10:03:26 2025
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 11.7300.
+

@@ -140,13 +140,29 @@ class Terrain:
                                            horizontal_scale=self.cfg.horizontal_scale)
         amplitude = 0.1 + 0.2 * difficulty
         slope = difficulty * 0.4
-        step_height = 0.05 + 0.18 * difficulty
+        stair_difficulty = min(difficulty, getattr(self.cfg, "stair_difficulty_cap", difficulty))
+        gap_difficulty = min(difficulty, getattr(self.cfg, "gap_difficulty_cap", difficulty))
+        pit_difficulty = min(difficulty, getattr(self.cfg, "pit_difficulty_cap", difficulty))
+        tilt_difficulty = min(difficulty, getattr(self.cfg, "tilt_difficulty_cap", difficulty))
+
+        step_height = (
+            getattr(self.cfg, "stair_height_base", 0.05)
+            + getattr(self.cfg, "stair_height_slope", 0.18) * stair_difficulty
+        )
         discrete_obstacles_height = 0.05 + difficulty * 0.2
         stepping_stones_size = 1.5 * (1.05 - difficulty)
         stone_distance = 0.05 if difficulty == 0 else 0.1
-        gap_size = 1. * difficulty
-        pit_depth = 0.6 * difficulty
-        tilt_width = 0.32 - 0.04 * difficulty
+        gap_size = getattr(self.cfg, "gap_size_scale", 1.0) * gap_difficulty
+        pit_depth = getattr(self.cfg, "pit_depth_scale", 0.6) * pit_difficulty
+        tilt_width = (
+            getattr(self.cfg, "tilt_width_base", 0.32)
+            - getattr(self.cfg, "tilt_width_slope", 0.04) * tilt_difficulty
+        )
+        tilt_width = np.clip(
+            tilt_width,
+            getattr(self.cfg, "tilt_width_min", 0.0),
+            self.env_width - 0.2,
+        )
         stair_step_width = 0.30 + random.random() * 0.04
         if choice < self.proportions[0]:
             terrain_utils.wave_terrain(terrain, num_waves=5, amplitude=amplitude)
@@ -186,7 +202,10 @@ class Terrain:
             env_origin_x = (i + 0.5) * self.env_length
             env_origin_y = (j + 0.5) * self.env_width
             box_z = 1
-            box_x = 0.4 + 0.4 * np.random.random()
+            box_x = (
+                getattr(self.cfg, "tilt_block_length_base", 0.4)
+                + getattr(self.cfg, "tilt_block_length_rand", 0.4) * np.random.random()
+            )
             tilt_front_left_trimesh = trimesh.box_trimesh(
                 np.array([
                     box_x,
@@ -268,7 +287,10 @@ class Terrain:
             )
 
         elif choice < self.proportions[8]:
-            crawl_height = 0.35 - 0.15 * difficulty
+            crawl_height = (
+                getattr(self.cfg, "crawl_height_base", 0.35)
+                - getattr(self.cfg, "crawl_height_slope", 0.15) * difficulty
+            )
             env_origin_x = (i + 0.5) * self.env_length
             env_origin_y = (j + 0.5) * self.env_width
             box_x = 0.2 + 0.2 * np.random.random()
