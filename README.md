@@ -24,15 +24,23 @@ Code for the paper:
 
 ## Training
 ```
-python legged_gym/scripts/train.py --task=a1_amp --headless --sim_device=cuda:0
+python legged_gym/scripts/train_titatit.py --task=titatit_amp --headless --sim_device=cuda:0
 ```
 Training takes about 23G GPU memory, and at least 10k iterations recommended.
 
 ## Visualization
 **Please make sure you have trained the WMP before**
 ```
-python legged_gym/scripts/play.py --task=a1_amp --sim_device=cuda:0 --terrain=climb
+python legged_gym/scripts/play_titatit.py --task=titatit_amp --sim_device=cuda:0 --terrain=climb
 ```
+
+python legged_gym/scripts/play_titatit.py \
+  --task=titatit_amp \
+  --terrain=pit \
+  --load_run WMP_titatit_0708 \
+  --checkpoint -1
+
+
 
 
 ## Acknowledgments
@@ -58,3 +66,4 @@ If you find this project helpful, please consider citing our paper:
   year={2024}
 }
 ```# wmp_titatiti
+# wmp_titatti_tesk
