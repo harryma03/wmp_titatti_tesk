@@ -51,6 +51,8 @@ from rsl_rl.algorithms.amp_discriminator import AMPDiscriminator
 from rsl_rl.datasets.motion_loader import AMPLoader
 from rsl_rl.utils.utils import Normalizer
 from rsl_rl.modules import DepthPredictor
+from dreamer.direct_recurrent_depth import DirectRecurrentDepthModel
+
 import torch.optim as optim
 
 from dreamer.models import *
@@ -202,7 +204,42 @@ class WMPRunner:
         image_shape = self.env.cfg.depth.resized + (1,)
         obs_shape = {'prop': (prop_dim,), 'image': image_shape,}
 
-        self._world_model = WorldModel(self.wm_config, obs_shape, use_camera=self.env.cfg.depth.use_camera)
+        # self._world_model = WorldModel(self.wm_config, obs_shape, use_camera=self.env.cfg.depth.use_camera)
+        self.representation_backend = os.environ.get(
+            "WL_REPRESENTATION", "rssm"
+        ).strip().lower()
+
+        if self.representation_backend == "rssm":
+            self._world_model = WorldModel(
+                self.wm_config,
+                obs_shape,
+                use_camera=self.env.cfg.depth.use_camera,
+            )
+
+        elif self.representation_backend == "drd":
+            self._world_model = DirectRecurrentDepthModel(
+                self.wm_config,
+                obs_shape,
+                use_camera=self.env.cfg.depth.use_camera,
+            )
+
+        else:
+            raise ValueError(
+                f"Unknown WL_REPRESENTATION={self.representation_backend}"
+            )
+
+        self._world_model = self._world_model.to(
+            self._world_model.device
+        )
+
+        self.wm_feature_dim = self.wm_config.dyn_deter
+
+        print(
+            "Representation backend:",
+            self.representation_backend
+        )
+
+
         self._world_model = self._world_model.to(self._world_model.device)
         print('Finish construct world model')
         self.wm_feature_dim = self.wm_config.dyn_deter #+ self.wm_config.dyn_stoch * self.wm_config.dyn_discrete
@@ -355,10 +392,41 @@ class WMPRunner:
                 for i in range(self.num_steps_per_env):
                     if (self.env.global_counter % self.wm_update_interval == 0):
                         # world model obs step
+                        # wm_embed = self._world_model.encoder(wm_obs)
+                        # wm_latent, _ = self._world_model.dynamics.obs_step(wm_latent, wm_action, wm_embed,
+                        #                                                    wm_obs["is_first"])
+                        # wm_feature = self._world_model.dynamics.get_deter_feat(wm_latent)
+
                         wm_embed = self._world_model.encoder(wm_obs)
-                        wm_latent, _ = self._world_model.dynamics.obs_step(wm_latent, wm_action, wm_embed,
-                                                                           wm_obs["is_first"])
-                        wm_feature = self._world_model.dynamics.get_deter_feat(wm_latent)
+
+                        if self.representation_backend == "rssm":
+                            wm_latent, _ = (
+                                self._world_model.dynamics.obs_step(
+                                    wm_latent,
+                                    wm_action,
+                                    wm_embed,
+                                    wm_obs["is_first"],
+                                )
+                            )
+
+                            wm_feature = (
+                                self._world_model.dynamics
+                                .get_deter_feat(wm_latent)
+                            )
+
+                        else:
+                            wm_latent = self._world_model.obs_step(
+                                wm_latent,
+                                wm_action,
+                                wm_embed,
+                                wm_obs["is_first"],
+                            )
+
+                            wm_feature = (
+                                self._world_model
+                                .get_deter_feat(wm_latent)
+                            )
+
                         wm_is_first[:] = 0
 
                     history = self.trajectory_history.flatten(1).to(self.device)
