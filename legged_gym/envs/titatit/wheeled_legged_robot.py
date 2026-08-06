@@ -85,6 +85,18 @@ class WheeledLeggedRobot(LeggedRobot):
         # Low-pass filter flag
         self.use_filter = getattr(self.cfg.control, 'use_filter', True)
 
+        self.use_wheel_realization = getattr(
+            self.cfg.control, 'use_wheel_realization', True
+        )
+
+        self.zero_wheel_position_obs = getattr(
+            self.cfg.control, 'zero_wheel_position_obs', True
+        )
+
+        self.use_event_rewards = getattr(
+            self.cfg.rewards, 'use_event_rewards', True
+        )
+
         # Terrain progress tracking
         self.terrain_progress_x0 = getattr(self.cfg.rewards, 'terrain_progress_x0', 2)
         self.terrain_progress_x1 = getattr(self.cfg.rewards, 'terrain_progress_x1', 12)
@@ -508,11 +520,16 @@ class WheeledLeggedRobot(LeggedRobot):
         # Override wheel joints with velocity/torque control
         # Original Titatif formula: kp_factor * 10 * action - 0.5 * kd_factor * vel
         # Here p_gains/d_gains already include randomization (kp_factor/kd_factor)
-        wheel_idx = self.wheel_indices
-        torques[:, wheel_idx] = (
-            p_gains[:, wheel_idx] * self.wheel_kp * actions_scaled[:, wheel_idx]
-            - self.wheel_kd_scale * d_gains[:, wheel_idx] * self.dof_vel[:, wheel_idx]
-        )
+        if self.use_wheel_realization:
+            wheel_idx = self.wheel_indices
+            torques[:, wheel_idx] = (
+                p_gains[:, wheel_idx]
+                * self.wheel_kp
+                * actions_scaled[:, wheel_idx]
+                - self.wheel_kd_scale
+                * d_gains[:, wheel_idx]
+                * self.dof_vel[:, wheel_idx]
+            )
 
         return torch.clip(torques, -self.torque_limits, self.torque_limits)
 
@@ -535,7 +552,9 @@ class WheeledLeggedRobot(LeggedRobot):
         # Build observations in Isaac joint order. base_lin_vel is first and is
         # covered by privileged_dim, matching the original quadruped template.
         dof_pos_obs = self.dof_pos - self.default_dof_pos
-        dof_pos_obs[:, self.wheel_indices] = 0.0
+
+        if self.zero_wheel_position_obs:
+            dof_pos_obs[:, self.wheel_indices] = 0.0
         self.privileged_obs_buf = torch.cat((
             self.base_lin_vel * self.obs_scales.lin_vel,                    # 3, privileged-only
             self.base_ang_vel * self.obs_scales.ang_vel,                    # 3
@@ -657,7 +676,7 @@ class WheeledLeggedRobot(LeggedRobot):
     def _reward_tracking_lin_vel(self):
         """Track commanded velocity, but allow slower approach near obstacles."""
         target_vel = self.commands[:, :2].clone()
-        if self.cfg.terrain.measure_heights:
+        if self.use_event_rewards and self.cfg.terrain.measure_heights:
             active = self._terrain_progress_active_mask()
             gap_active = self._gap_active_mask()
             obstacle_target_x = torch.where(

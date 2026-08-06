@@ -140,6 +140,10 @@ class TitatitAMPCfg(LeggedRobotCfg):
             contact_collection = 2
 
     class control(LeggedRobotCfg.control):
+
+        use_wheel_realization = True
+        zero_wheel_position_obs = True
+
         control_type = 'P'
         stiffness = {'joint': 35.}  # all 16 DOFs get p_gains=25
         damping = {'joint': 0.625}  # all 16 DOFs get d_gains=0.625
@@ -269,6 +273,8 @@ class TitatitAMPCfg(LeggedRobotCfg):
             [1000, 4000, 0.10, 1.0],
         ]
 
+        use_event_rewards = True
+        
         soft_dof_pos_limit = 0.9                    # 关节软限位比例；越小越早惩罚接近关节极限
         base_height_target = 0.44                   # 基础机身高度参考值，供通用高度类奖励使用
         foot_height_target = 0.12                   # 摆腿/抬脚高度参考值，供部分脚高奖励使用
